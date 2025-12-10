@@ -1,0 +1,40 @@
+name: "Decrypt Ansible Vault"
+description: "Decrypts Ansible vault file and distributes secrets to service directories"
+inputs:
+    environment:
+        description: "Ansible environment"
+        required: true
+    ansible-vault-password:
+        description: "Ansible vault password"
+        required: true
+
+runs:
+    using: "composite"
+    steps:
+        - name: Install Ansible
+          shell: bash
+          run: |
+              sudo apt update
+              sudo apt install -y ansible
+
+        - name: Decrypt vault file
+          shell: bash
+          run: |
+              echo "${{ inputs.ansible-vault-password }}" > vault_pass.txt
+              ansible-vault decrypt --vault-password-file vault_pass.txt "infra/ansible-vault/${{ inputs.environment }}/vault.yml"
+              rm vault_pass.txt
+
+        - name: Export environment variables
+          shell: bash
+          run: |
+              # Filter, mask, and export secrets
+              while IFS='=' read -r key value; do
+                  [[ -n "$key" ]] || continue
+                  [[ -n "$value" ]] && echo "::add-mask::${value}"
+                  echo "${key}=${value}" >> $GITHUB_ENV
+              done < <(grep -Ev '^(#|[[:space:]]*$)' "infra/ansible-vault/${{ inputs.environment }}/vault.yml")
+
+        - name: Clean up decrypted vault file
+          shell: bash
+          run: |
+              rm "infra/ansible-vault/${{ inputs.environment }}/vault.yml"
